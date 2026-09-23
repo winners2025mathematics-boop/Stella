@@ -25,60 +25,53 @@ class MainActivity : AppCompatActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 
-        // Build UI programmatically (no XML needed)
         val layout = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
-            setPadding(24, 24, 24, 24)
+            setPadding(32, 32, 32, 32)
         }
 
         val title = TextView(this).apply {
             text = "SMS Gateway"
-            textSize = 20f
+            textSize = 22f
         }
         layout.addView(title)
 
         val status = TextView(this).apply {
-            text = "Polling every 20s"
-            textSize = 12f
-            setPadding(0, 8, 0, 16)
+            text = "Polls every 20 seconds. Sends SMS via default SIM."
+            textSize = 13f
+            setPadding(0, 12, 0, 24)
         }
         layout.addView(status)
 
         val testBtn = Button(this).apply {
-            text = "Send Test SMS to 265991234567"
-            setOnClickListener {
-                sendTestSms()
-            }
+            text = "Send Test SMS"
+            setOnClickListener { sendTestSms() }
         }
         layout.addView(testBtn)
 
         textView = TextView(this).apply {
             textSize = 11f
-            setPadding(0, 16, 0, 0)
+            setPadding(0, 24, 0, 0)
             typeface = android.graphics.Typeface.MONOSPACE
         }
 
         val scroll = ScrollView(this).apply {
             addView(textView)
         }
-        layout.addView(scroll, LinearLayout.LayoutParams(
-            LinearLayout.LayoutParams.MATCH_PARENT,
-            0, 1f
-        ))
+        layout.addView(scroll)
 
         setContentView(layout)
 
-        // Sync log with service logs
         textView?.text = logLines.joinToString("\n")
 
-        // Request permissions
         requestNeededPermissions()
     }
 
     private fun sendTestSms() {
         appendLog("TEST: sending to 265991234567")
         val sender = SmsSender(this)
-        sender.send("265991234567", "Test from gateway at ${System.currentTimeMillis()}")
+        val ok = sender.send("265991234567", "Test at ${System.currentTimeMillis()}")
+        appendLog(if (ok) "TEST queued" else "TEST failed")
     }
 
     private fun requestNeededPermissions() {
@@ -99,8 +92,10 @@ class MainActivity : AppCompatActivity() {
         }
 
         if (perms.isNotEmpty()) {
+            appendLog("Requesting permissions...")
             ActivityCompat.requestPermissions(this, perms.toTypedArray(), PERM_REQUEST)
         } else {
+            appendLog("Permissions already granted")
             startGateway()
         }
     }
@@ -112,21 +107,27 @@ class MainActivity : AppCompatActivity() {
     ) {
         super.onRequestPermissionsResult(requestCode, permissions, grantResults)
         if (requestCode == PERM_REQUEST) {
-            if (grantResults.all { it == PackageManager.PERMISSION_GRANTED }) {
+            if (grantResults.isNotEmpty() && grantResults.all { it == PackageManager.PERMISSION_GRANTED }) {
+                appendLog("All permissions granted")
                 startGateway()
             } else {
-                appendLog("X permissions denied")
+                appendLog("X permission denied")
             }
         }
     }
 
     private fun startGateway() {
         appendLog("Starting gateway service...")
-        val intent = Intent(this, GatewayService::class.java)
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            startForegroundService(intent)
-        } else {
-            startService(intent)
+        try {
+            val intent = Intent(this, GatewayService::class.java)
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                startForegroundService(intent)
+            } else {
+                startService(intent)
+            }
+            appendLog("Gateway service started")
+        } catch (e: Exception) {
+            appendLog("X start failed: ${e.message}")
         }
     }
 
@@ -136,7 +137,6 @@ class MainActivity : AppCompatActivity() {
         val formatted = "$ts  $line"
         logLines.add(formatted)
         if (logLines.size > 500) logLines.removeAt(0)
-
         runOnUiThread {
             textView?.append("\n$formatted")
         }

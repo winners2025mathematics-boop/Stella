@@ -8,7 +8,6 @@ import android.content.Intent
 import android.os.Build
 import android.os.IBinder
 import android.util.Log
-import org.json.JSONArray
 import org.json.JSONObject
 import java.net.HttpURLConnection
 import java.net.URL
@@ -20,17 +19,26 @@ class GatewayService : Service() {
     private val pollUrl = "https://winnersonlineschool.com/winners/poll.php"
     private val authKey = "winners_gw_9f3a8c2e1b7d4f6a0c8e2d5b9a1f3c7e"
     private val pollIntervalMs = 20_000L
-    private val channelId = "gateway_service"
+    private val channelId = "gateway_channel"
+    private val notifId = 1001
 
     override fun onCreate() {
         super.onCreate()
-        createNotificationChannel()
+        Log.d("Gateway", "onCreate")
+        try {
+            createNotificationChannel()
+            val notif = buildNotification("Starting...")
+            startForeground(notifId, notif)
+            Log.d("Gateway", "startForeground OK")
+        } catch (e: Exception) {
+            Log.e("Gateway", "startForeground failed", e)
+        }
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
+        Log.d("Gateway", "onStartCommand")
         if (!running) {
             running = true
-            startForeground(1, buildNotification("Polling every 20s"))
             startPollingLoop()
         }
         return START_STICKY
@@ -39,6 +47,7 @@ class GatewayService : Service() {
     override fun onBind(intent: Intent?): IBinder? = null
 
     override fun onDestroy() {
+        Log.d("Gateway", "onDestroy")
         running = false
         super.onDestroy()
     }
@@ -47,13 +56,14 @@ class GatewayService : Service() {
         thread {
             while (running) {
                 try {
+                    Log.d("Gateway", "polling...")
                     val response = httpGet(pollUrl)
-                    Log.d("Gateway", "Poll response: $response")
+                    Log.d("Gateway", "response: $response")
                     processResponse(response)
                 } catch (e: Exception) {
-                    Log.e("Gateway", "Poll error: ${e.message}", e)
+                    Log.e("Gateway", "poll error: ${e.message}")
                 }
-                Thread.sleep(pollIntervalMs)
+                try { Thread.sleep(pollIntervalMs) } catch (_: InterruptedException) {}
             }
         }
     }
@@ -74,8 +84,6 @@ class GatewayService : Service() {
 
     private fun processResponse(response: String) {
         if (response.isBlank()) return
-
-        // Empty array = no jobs
         val trimmed = response.trim()
         if (trimmed == "[]") return
 
@@ -85,13 +93,12 @@ class GatewayService : Service() {
             val message = json.optString("message", "")
             if (phone.isEmpty() || message.isEmpty()) return
 
-            Log.d("Gateway", "JOB: sending to $phone")
+            Log.d("Gateway", "JOB: -> $phone")
             val sender = SmsSender(this)
             val ok = sender.send(phone, message)
-            Log.d("Gateway", if (ok) "SMS queued" else "SMS failed")
+            Log.d("Gateway", if (ok) "sent" else "send failed")
         } catch (e: Exception) {
-            // Might be an array — skip
-            Log.d("Gateway", "parse skip: ${e.message}")
+            Log.d("Gateway", "skip: ${e.message}")
         }
     }
 
@@ -99,9 +106,10 @@ class GatewayService : Service() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             val channel = NotificationChannel(
                 channelId,
-                "SMS Gateway Service",
+                "SMS Gateway",
                 NotificationManager.IMPORTANCE_LOW
             )
+            channel.setShowBadge(false)
             val nm = getSystemService(NotificationManager::class.java)
             nm.createNotificationChannel(channel)
         }
@@ -115,9 +123,9 @@ class GatewayService : Service() {
             Notification.Builder(this)
         }
         return builder
-            .setContentTitle("SMS Gateway")
+            .setContentTitle("SMS Gateway running")
             .setContentText(text)
-            .setSmallIcon(android.R.drawable.ic_dialog_info)
+            .setSmallIcon(android.R.drawable.stat_notify_sync)
             .setOngoing(true)
             .build()
     }
